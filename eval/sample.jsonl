@@ -1,0 +1,6 @@
+{"id":"q001","question":"Apa amar putusan perkara korupsi kasasi ini?","expectedEvidenceContains":["Menolak permohonan kasasi"],"expectedAnswerContains":["menolak","kasasi"],"category":"final_ruling"}
+{"id":"q002","question":"Apa pertimbangan hukum hakim dalam perkara narkotika?","expectedEvidenceContains":["kasasi"],"expectedAnswerContains":["kasasi"],"category":"court_reasoning"}
+{"id":"q003","question":"Apa amar putusan dalam perkara perceraian di Pengadilan Agama?","expectedEvidenceContains":["talak"],"expectedAnswerContains":["talak"],"category":"final_ruling"}
+{"id":"q004","question":"Bagaimana resep membuat kue bolu cokelat yang enak?","expectNotFound":true,"category":"out_of_scope"}
+{"id":"q005","question":"Berapa harga saham Apple di tahun 3025?","expectNotFound":true,"category":"out_of_scope"}
+{"id":"q006","question":"Apa amar putusan sengketa tata usaha negara?","expectedEvidenceContains":["Mengabulkan"],"expectedAnswerContains":["gugatan"],"category":"final_ruling"}

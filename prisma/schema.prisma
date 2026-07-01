@@ -1,0 +1,283 @@
+// Putusan Pro — Prisma schema (SQLite, local-first).
+//
+// Notes on SQLite:
+//  - SQLite (via Prisma) does not support native enums or scalar lists, so
+//    "list" fields (parties, judges, keywords, tags) are stored as JSON strings
+//    and (de)serialized through helpers in src/lib/serialize.ts.
+//  - Status/enum-like fields use plain strings with documented allowed values.
+//  - To migrate to PostgreSQL: change `provider` to "postgresql", set
+//    DATABASE_URL, then `prisma migrate dev`. The JSON-string fields keep working.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A single court decision (putusan). Mahkamah Agung is the source of truth;
+/// this row is a local cache + index of one public decision page.
+model CaseDecision {
+  id           String @id @default(cuid())
+  sourceUrl    String @unique @map("source_url")
+  sourceDomain String @default("putusan3.mahkamahagung.go.id") @map("source_domain")
+
+  // --- Identity ---
+  nomorPutusan String? @map("nomor_putusan")
+  tingkatProses String? @map("tingkat_proses") // e.g. "Pertama", "Banding", "Kasasi", "Peninjauan Kembali"
+  klasifikasi  String? // e.g. "Pidana Khusus", "Perdata"
+  kataKunci    String? @map("kata_kunci") // JSON string[] of keywords
+  tahun        Int?
+
+  // --- Dates (ISO strings to avoid TZ surprises on SQLite) ---
+  tanggalRegister   String? @map("tanggal_register")
+  tanggalPutusan    String? @map("tanggal_putusan")
+  tanggalMusyawarah String? @map("tanggal_musyawarah")
+
+  // --- Court ---
+  lembagaPeradilan      String? @map("lembaga_peradilan")
+  jenisLembagaPeradilan String? @map("jenis_lembaga_peradilan")
+  pengadilan            String?
+  provinsi              String?
+
+  // --- People (JSON string[]) ---
+  hakim   String? // JSON string[]
+  panitera String?
+
+  // --- Parties ---
+  pihak     String? // JSON string[] (all parties, generic)
+  pemohon   String?
+  termohon  String?
+  terdakwa  String?
+  penggugat String?
+  tergugat  String?
+
+  // --- Content ---
+  amarPutusan    String? @map("amar_putusan")
+  ringkasanSingkat String? @map("ringkasan_singkat")
+  fullText       String? @map("full_text")
+
+  // --- AI (optional layer) ---
+  aiSummary     String? @map("ai_summary")
+  aiSummaryJson String? @map("ai_summary_json") // structured: issues, outcome, timeline
+
+  // --- Files & provenance ---
+  pdfUrl       String? @map("pdf_url")
+  localPdfPath String? @map("local_pdf_path")
+  rawHtmlPath  String? @map("raw_html_path")
+
+  // --- Derived flags (kept as columns so search can filter quickly) ---
+  hasPdf      Boolean @default(false) @map("has_pdf")
+  hasFullText Boolean @default(false) @map("has_full_text")
+
+  // --- Extraction bookkeeping ---
+  // extraction_status: "pending" | "partial" | "complete" | "failed"
+  extractionStatus String  @default("pending") @map("extraction_status")
+  confidenceJson   String? @map("confidence_json") // JSON record<field, number 0..1>
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  indexedAt  DateTime? @map("indexed_at")
+
+  notes      CaseNote[]
+  savedIn    SavedCase[]
+  pages      DocumentPage[]
+  chunks     DocumentChunk[]
+  analysis   CaseAnalysis?
+
+  @@index([tahun])
+  @@index([klasifikasi])
+  @@index([pengadilan])
+  @@index([extractionStatus])
+  @@map("case_decisions")
+}
+
+/// Every decision URL we have ever discovered. Saved BEFORE any detail fetch so
+/// the work queue is durable and resumable.
+model DiscoveredUrl {
+  id            String   @id @default(cuid())
+  url           String
+  normalizedUrl String   @unique @map("normalized_url")
+  sourcePage    String?  @map("source_page")
+  // status: "pending" | "processing" | "completed" | "failed" | "skipped"
+  status        String   @default("pending")
+  discoveredAt  DateTime @default(now()) @map("discovered_at")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  attemptCount  Int      @default(0) @map("attempt_count")
+  errorMessage  String?  @map("error_message")
+  jobId         String?  @map("job_id")
+
+  @@index([status])
+  @@index([jobId])
+  @@map("discovered_urls")
+}
+
+/// A unit of ingestion work (a "run"). Resumable & inspectable.
+model IngestionJob {
+  id            String   @id @default(cuid())
+  // mode: "seed" | "csv" | "paste" | "single" | "reingest"
+  mode          String
+  // status: "pending" | "processing" | "paused" | "completed" | "failed" | "stopped"
+  status        String   @default("pending")
+  configJson    String   @default("{}") @map("config_json")
+  progressTotal Int      @default(0) @map("progress_total")
+  progressDone  Int      @default(0) @map("progress_done")
+  progressFailed Int     @default(0) @map("progress_failed")
+  startedAt     DateTime? @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  logs          String   @default("[]") // JSON array of {ts, level, msg}
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("ingestion_jobs")
+}
+
+/// A personal research note attached to a case.
+model CaseNote {
+  id        String   @id @default(cuid())
+  caseId    String   @map("case_id")
+  title     String?
+  body      String   @default("")
+  tags      String   @default("[]") // JSON string[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  case CaseDecision @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@map("case_notes")
+}
+
+/// A case saved into a research collection.
+model SavedCase {
+  id             String   @id @default(cuid())
+  caseId         String   @map("case_id")
+  collectionName String   @default("Default") @map("collection_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  case CaseDecision @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([caseId, collectionName])
+  @@index([collectionName])
+  @@map("saved_cases")
+}
+
+/// Persisted recent search queries (for the dashboard widget).
+model SearchHistory {
+  id        String   @id @default(cuid())
+  query     String
+  resultCount Int    @default(0) @map("result_count")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("search_history")
+}
+
+/// Key/value app settings (privacy, ingestion overrides, theme defaults).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
+}
+
+// ===========================================================================
+// Apof.ai RAG layer — page-aware extraction, legal-aware chunks, embeddings,
+// and query logs. All local-first; works in mock mode with no external service.
+// ===========================================================================
+
+/// One extracted page of a decision document (provenance for citations).
+model DocumentPage {
+  id             String   @id @default(cuid())
+  caseDecisionId String   @map("case_decision_id")
+  pageNumber     Int      @map("page_number")
+  text           String
+  confidence     Float?
+  metadataJson   String   @default("{}") @map("metadata_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  caseDecision   CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+
+  @@unique([caseDecisionId, pageNumber])
+  @@index([caseDecisionId])
+  @@map("document_pages")
+}
+
+/// A legal-aware chunk (section-preserving) — the unit of retrieval.
+model DocumentChunk {
+  id                String   @id
+  caseDecisionId    String   @map("case_decision_id")
+  chunkIndex        Int      @map("chunk_index")
+  parentSection     String?  @map("parent_section")
+  sectionTitle      String?  @map("section_title")
+  sectionKind       String?  @map("section_kind")
+  pageStart         Int?     @map("page_start")
+  pageEnd           Int?     @map("page_end")
+  paragraphStart    Int?     @map("paragraph_start")
+  paragraphEnd      Int?     @map("paragraph_end")
+  text              String
+  normalizedText    String   @map("normalized_text")
+  legalTermsJson    String   @default("[]") @map("legal_terms_json")
+  citedArticlesJson String   @default("[]") @map("cited_articles_json")
+  metadataJson      String   @default("{}") @map("metadata_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  caseDecision      CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  embeddings        ChunkEmbedding[]
+
+  @@index([caseDecisionId])
+  @@index([parentSection])
+  @@index([sectionTitle])
+  @@index([sectionKind])
+  @@map("document_chunks")
+}
+
+/// A vector embedding of a chunk (SQLite fallback stores the vector as JSON).
+model ChunkEmbedding {
+  id          String   @id @default(cuid())
+  chunkId     String   @map("chunk_id")
+  provider    String
+  model       String
+  dimensions  Int
+  vectorJson  String   @map("vector_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  chunk       DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@unique([chunkId, provider, model])
+  @@index([model])
+  @@map("chunk_embeddings")
+}
+
+/// Structured, citation-aware breakdown of a decision (deterministic or AI).
+model CaseAnalysis {
+  id             String   @id @default(cuid())
+  caseDecisionId String   @unique @map("case_decision_id")
+  method         String   @default("deterministic") // deterministic | llm
+  breakdownJson  String   @map("breakdown_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  caseDecision   CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+
+  @@map("case_analyses")
+}
+
+/// Audit log of every RAG question (for evaluation + transparency).
+model RagQueryLog {
+  id            String   @id @default(cuid())
+  question      String
+  filtersJson   String   @default("{}") @map("filters_json")
+  retrievedJson String   @default("[]") @map("retrieved_json")
+  answer        String?
+  abstained     Boolean  @default(false)
+  provider      String?
+  model         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("rag_query_logs")
+}

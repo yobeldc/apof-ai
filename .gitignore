@@ -1,0 +1,51 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+/dist
+dist/
+
+# misc
+.DS_Store
+*.pem
+.idea
+.vscode
+
+# local Claude Code overrides (machine-specific, mirrors .env.local)
+.claude/settings.local.json
+
+# Python bytecode (from bundled skills, e.g. ui-ux-pro-max)
+__pycache__/
+*.pyc
+
+# debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env*.local
+
+# database (local-first)
+/prisma/*.db
+/prisma/*.db-journal
+/prisma/dev.db*
+
+# local data store (raw html snapshots, pdfs, caches)
+/data/raw
+/data/pdf
+/data/cache
+/storage
+
+# testing
+/coverage

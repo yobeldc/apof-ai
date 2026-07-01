@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens derived from UI UX Pro Max:
+ *  - Style: "Dark Mode (OLED)" (dark default, high contrast, WCAG AAA target)
+ *  - Color: trust-blue primary (#2563EB / #3B82F6) on deep-slate surfaces,
+ *    amber reserved strictly for caution (skill Fintech/SaaS palettes)
+ *  - Light-mode contrast follows the skill checklist: text slate-900 (#0F172A),
+ *    muted slate-600 (#475569), borders slate-200 (#E2E8F0).
+ */
+@layer base {
+  :root {
+    --background: 210 40% 99%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 214 32% 95%;
+    --secondary-foreground: 222 47% 16%;
+
+    --muted: 214 32% 95%;
+    --muted-foreground: 215 16% 38%;
+
+    --accent: 199 89% 44%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 30%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 92% 45%;
+    --warning-foreground: 30 90% 16%;
+
+    --border: 214 32% 91%;
+    --input: 214 26% 87%;
+    --ring: 221 83% 53%;
+
+    --sidebar: 214 33% 97%;
+    --sidebar-foreground: 217 25% 27%;
+    --sidebar-border: 214 30% 91%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 214 32% 91%;
+
+    --card: 222 40% 9%;
+    --card-foreground: 214 32% 91%;
+
+    --popover: 222 44% 8%;
+    --popover-foreground: 214 32% 91%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 217 30% 15%;
+    --secondary-foreground: 214 32% 90%;
+
+    --muted: 217 30% 14%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 199 89% 56%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 158 64% 52%;
+    --success-foreground: 222 47% 8%;
+
+    --warning: 43 96% 56%;
+    --warning-foreground: 38 95% 10%;
+
+    --border: 216 30% 16%;
+    --input: 216 28% 19%;
+    --ring: 217 91% 60%;
+
+    --sidebar: 222 45% 7%;
+    --sidebar-foreground: 215 22% 72%;
+    --sidebar-border: 216 30% 15%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Tabular figures for stats, dates, counters. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Reading column for legal full text. */
+  .prose-legal {
+    @apply font-serif text-[1.0625rem] leading-[1.75] text-foreground/90;
+    max-width: 72ch;
+  }
+  .prose-legal p {
+    @apply mb-4;
+  }
+
+  /* Subtle skeleton shimmer. */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.06),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+
+  /* Custom thin scrollbars for dense panels. */
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .scroll-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+
+  .bg-grid {
+    background-image: radial-gradient(
+      hsl(var(--foreground) / 0.04) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
