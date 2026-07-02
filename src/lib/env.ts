@@ -73,6 +73,11 @@ export const env = {
     llmModel: str("RAG_LLM_MODEL", "mock-answer-v1"),
     llmBaseUrl: str("RAG_LLM_BASE_URL", "http://localhost:11434"),
     llmHttpUrl: str("RAG_LLM_HTTP_URL", ""),
+    // Resource controls for constrained VPS/GPU deployments (Ollama options).
+    // 0/unset = let Ollama use its own defaults.
+    llmNumCtx: num("RAG_LLM_NUM_CTX", 0),
+    llmNumPredict: num("RAG_LLM_NUM_PREDICT", 0),
+    llmTemperature: num("RAG_LLM_TEMPERATURE", 0.2),
     qdrantUrl: str("QDRANT_URL", "http://localhost:6333"),
     qdrantApiKey: str("QDRANT_API_KEY", ""),
     qdrantCollection: str("QDRANT_COLLECTION", "apof_chunks"),

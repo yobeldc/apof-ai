@@ -1,0 +1,106 @@
+# Apof.ai — reference Coolify deployment topology.
+#
+# This file documents the RECOMMENDED architecture and is a useful local
+# `docker compose up` smoke test, but in Coolify itself you will typically:
+#   - let Coolify manage PostgreSQL as its own "Database" resource (preferred),
+#   - deploy this repo as a Coolify "Application" (Dockerfile-based),
+#   - optionally add Qdrant as a Coolify "Service"/one-click resource,
+# and wire them together with Coolify's own env vars + private networking,
+# rather than running this exact compose file in Coolify. See
+# docs/DEPLOY_COOLIFY.md for the step-by-step Coolify UI flow.
+#
+# Ollama is intentionally NOT defined as a service here — see Part 5 of
+# docs/DEPLOY_COOLIFY.md for the three supported deployment strategies. Do not
+# expose Ollama's port publicly if you do run it in Coolify.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_APP_NAME: "Apof.ai"
+      DATABASE_URL: "postgresql://apofai:${POSTGRES_PASSWORD}@postgres:5432/apofai"
+      STORAGE_DIR: "/app/data"
+
+      RAG_ENABLED: "true"
+      RAG_EMBEDDING_PROVIDER: "ollama"
+      RAG_EMBEDDING_MODEL: "bge-m3"
+      RAG_EMBEDDING_DIMENSION: "1024"
+      # Point at your own private Ollama endpoint — see Part 5 in the docs.
+      # Same-Docker-network example (only if you run Ollama in this compose
+      # project too, which is NOT defined here by default):
+      RAG_EMBEDDING_BASE_URL: "http://ollama:11434"
+
+      RAG_VECTOR_PROVIDER: "qdrant"
+      QDRANT_URL: "http://qdrant:6333"
+      QDRANT_COLLECTION: "apofai_chunks"
+
+      RAG_LLM_PROVIDER: "ollama"
+      RAG_LLM_MODEL: "qwen3:8b"
+      RAG_LLM_BASE_URL: "http://ollama:11434"
+      RAG_LLM_NUM_CTX: "4096"
+      RAG_LLM_NUM_PREDICT: "700"
+      RAG_LLM_TEMPERATURE: "0.2"
+    volumes:
+      # Persistent local-first data (raw HTML/PDF snapshots, cache). Without
+      # this, offline-imported documents are lost on every redeploy.
+      - apofai_data:/app/data
+    depends_on:
+      - postgres
+    networks:
+      - apofai
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apofai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: apofai
+    volumes:
+      - apofai_postgres:/var/lib/postgresql/data
+    networks:
+      - apofai
+    # Do not publish 5432 publicly in production — Coolify's internal network
+    # already lets `app` reach `postgres` by service name.
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - apofai_qdrant:/qdrant/storage
+    networks:
+      - apofai
+    # Do not publish 6333/6334 publicly unless you also set QDRANT_API_KEY
+    # and terminate TLS in front of it.
+
+  # Ollama is NOT included here by default. If you choose to self-host it in
+  # the same Coolify project (Option B in docs/DEPLOY_COOLIFY.md Part 5),
+  # add a service like the commented block below — on a machine with a GPU,
+  # add the appropriate `deploy.resources.reservations.devices` block for
+  # your Coolify/Docker Compose version, and NEVER map its port to the host.
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   restart: unless-stopped
+  #   volumes:
+  #     - apofai_ollama:/root/.ollama
+  #   networks:
+  #     - apofai
+  #   # no `ports:` — reachable only from other containers on `apofai` as
+  #   # http://ollama:11434, never from the public internet.
+
+networks:
+  apofai:
+    driver: bridge
+
+volumes:
+  apofai_data:
+  apofai_postgres:
+  apofai_qdrant:
+  # apofai_ollama:

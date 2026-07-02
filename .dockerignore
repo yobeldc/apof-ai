@@ -1,0 +1,48 @@
+# --- Secrets / local env (never bake into the image) ------------------------
+.env
+.env.local
+.env.*.local
+
+# --- Dependencies (installed fresh in the deps stage) ------------------------
+node_modules
+npm-debug.log*
+
+# --- Build output (regenerated in the builder stage) -------------------------
+.next
+out
+build
+dist
+
+# --- Local-first data & database (must be a volume, not image content) ------
+data/raw
+data/pdf
+data/cache
+prisma/*.db
+prisma/*.db-journal
+prisma/dev.db*
+storage
+
+# --- Version control / editor / OS ------------------------------------------
+.git
+.gitignore
+.github
+.vscode
+.idea
+.DS_Store
+*.pem
+
+# --- Claude Code / tooling artifacts (not needed in the image) --------------
+.claude
+.tokensave
+graphify-out
+
+# --- Tests & docs (not needed at runtime) ------------------------------------
+tests
+coverage
+docs
+design-system
+eval
+*.md
+
+# --- Misc ---------------------------------------------------------------
+tsconfig.tsbuildinfo

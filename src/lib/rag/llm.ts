@@ -63,6 +63,13 @@ class OllamaLlmProvider implements LlmAnswerProvider {
   model = env.rag.llmModel;
   private baseUrl = env.rag.llmBaseUrl.replace(/\/$/, "");
   async generate(question: string, evidence: RetrievedEvidence[]): Promise<RawAnswer> {
+    // Resource controls matter a lot on small VPS/GPU deployments — a large
+    // num_ctx or unbounded num_predict on an 8GB card (or CPU-only) is a common
+    // cause of OOM/timeouts. 0 means "omit, let Ollama use its own default".
+    const options: Record<string, number> = { temperature: env.rag.llmTemperature };
+    if (env.rag.llmNumCtx > 0) options.num_ctx = env.rag.llmNumCtx;
+    if (env.rag.llmNumPredict > 0) options.num_predict = env.rag.llmNumPredict;
+
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -70,6 +77,7 @@ class OllamaLlmProvider implements LlmAnswerProvider {
         model: this.model,
         format: "json",
         stream: false,
+        options,
         messages: [
           { role: "system", content: APOF_SYSTEM_PROMPT },
           { role: "user", content: buildAnswerPrompt(question, evidence) },
