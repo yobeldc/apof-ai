@@ -51,6 +51,4 @@ yarn-error.log*
 /coverage
 
 # generated graphify artifacts (regenerate with the graphify skill)
-graphify-out/cache/
-graphify-out/*.html
-graphify-out/*.json
+graphify-out/
