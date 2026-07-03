@@ -1,85 +1,37 @@
-// Putusan Pro — Prisma schema (SQLite, local-first).
-//
-// Notes on SQLite:
-//  - SQLite (via Prisma) does not support native enums or scalar lists, so
-//    "list" fields (parties, judges, keywords, tags) are stored as JSON strings
-//    and (de)serialized through helpers in src/lib/serialize.ts.
-//  - Status/enum-like fields use plain strings with documented allowed values.
-//  - To migrate to PostgreSQL: change `provider` to "postgresql", set
-//    DATABASE_URL, then `prisma migrate dev`. The JSON-string fields keep working.
-
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-/// A single court decision (putusan). Mahkamah Agung is the source of truth;
-/// this row is a local cache + index of one public decision page.
+generator client {
+  provider = "prisma-client-js"
+}
+
 model CaseDecision {
-  id           String @id @default(cuid())
-  sourceUrl    String @unique @map("source_url")
-  sourceDomain String @default("putusan3.mahkamahagung.go.id") @map("source_domain")
-
-  // --- Identity ---
-  nomorPutusan String? @map("nomor_putusan")
-  tingkatProses String? @map("tingkat_proses") // e.g. "Pertama", "Banding", "Kasasi", "Peninjauan Kembali"
-  klasifikasi  String? // e.g. "Pidana Khusus", "Perdata"
-  kataKunci    String? @map("kata_kunci") // JSON string[] of keywords
-  tahun        Int?
-
-  // --- Dates (ISO strings to avoid TZ surprises on SQLite) ---
-  tanggalRegister   String? @map("tanggal_register")
-  tanggalPutusan    String? @map("tanggal_putusan")
-  tanggalMusyawarah String? @map("tanggal_musyawarah")
-
-  // --- Court ---
-  lembagaPeradilan      String? @map("lembaga_peradilan")
-  jenisLembagaPeradilan String? @map("jenis_lembaga_peradilan")
-  pengadilan            String?
-  provinsi              String?
-
-  // --- People (JSON string[]) ---
-  hakim   String? // JSON string[]
-  panitera String?
-
-  // --- Parties ---
-  pihak     String? // JSON string[] (all parties, generic)
-  pemohon   String?
-  termohon  String?
-  terdakwa  String?
-  penggugat String?
-  tergugat  String?
-
-  // --- Content ---
-  amarPutusan    String? @map("amar_putusan")
-  ringkasanSingkat String? @map("ringkasan_singkat")
-  fullText       String? @map("full_text")
-
-  // --- AI (optional layer) ---
-  aiSummary     String? @map("ai_summary")
-  aiSummaryJson String? @map("ai_summary_json") // structured: issues, outcome, timeline
-
-  // --- Files & provenance ---
-  pdfUrl       String? @map("pdf_url")
-  localPdfPath String? @map("local_pdf_path")
-  rawHtmlPath  String? @map("raw_html_path")
-
-  // --- Derived flags (kept as columns so search can filter quickly) ---
-  hasPdf      Boolean @default(false) @map("has_pdf")
-  hasFullText Boolean @default(false) @map("has_full_text")
-
-  // --- Extraction bookkeeping ---
-  // extraction_status: "pending" | "partial" | "complete" | "failed"
-  extractionStatus String  @default("pending") @map("extraction_status")
-  confidenceJson   String? @map("confidence_json") // JSON record<field, number 0..1>
-
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  indexedAt  DateTime? @map("indexed_at")
+  id              String   @id @default(cuid())
+  url             String   @unique
+  nomorPutusan    String?  @map("nomor_putusan")
+  pengadilan      String?
+  klasifikasi     String?
+  tahun           Int?
+  tanggalPutusan  String?  @map("tanggal_putusan")
+  tanggalRegister String?  @map("tanggal_register")
+  tanggalMinutasi String?  @map("tanggal_minutasi")
+  tingkatProses   String?  @map("tingkat_proses")
+  hakim           String?
+  panitera        String?
+  pihak           String?
+  pemohon         String?
+  termohon        String?
+  terdakwa        String?
+  penggugat       String?
+  tergugat        String?
+  amarPutusan     String?  @map("amar_putusan")
+  fullText        String?  @map("full_text")
+  isDemo          Boolean  @default(false) @map("is_demo")
+  sourceUrl       String?  @map("source_url")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   notes      CaseNote[]
   savedIn    SavedCase[]
@@ -87,187 +39,157 @@ model CaseDecision {
   chunks     DocumentChunk[]
   analysis   CaseAnalysis?
 
+  // --- Apof Graph status & metadata ---
+  apofGraphStatus      String    @default("pending") @map("apof_graph_status")
+  apofGraphVersion     String?   @map("apof_graph_version")
+  domainTagsJson       String    @default("[]") @map("domain_tags_json")
+  sensitivityFlagsJson String    @default("[]") @map("sensitivity_flags_json")
+  acquisitionMode      String?   @map("acquisition_mode")
+  lastReviewedAt       DateTime? @map("last_reviewed_at")
+
+  // --- Apof Graph relations ---
+  apofGraphExtraction  ApofGraphExtraction?
+  decisionJudges       DecisionJudge[]
+  decisionLegalIssues  DecisionLegalIssue[]
+  decisionArticles     DecisionArticle[]
+  citations            DecisionCitation[]  @relation("CitingCase")
+  citedIn              DecisionCitation[]  @relation("CitedCase")
+  sentences            DecisionSentence[]
+  similarities         DecisionSimilarity[] @relation("SimilaritySource")
+  similarToMe          DecisionSimilarity[] @relation("SimilarityTarget")
+  humanReviews         HumanReview[]
+
+  @@index([apofGraphStatus])
   @@index([tahun])
   @@index([klasifikasi])
   @@index([pengadilan])
-  @@index([extractionStatus])
   @@map("case_decisions")
 }
 
-/// Every decision URL we have ever discovered. Saved BEFORE any detail fetch so
-/// the work queue is durable and resumable.
 model DiscoveredUrl {
   id            String   @id @default(cuid())
   url           String
   normalizedUrl String   @unique @map("normalized_url")
-  sourcePage    String?  @map("source_page")
-  // status: "pending" | "processing" | "completed" | "failed" | "skipped"
   status        String   @default("pending")
-  discoveredAt  DateTime @default(now()) @map("discovered_at")
-  lastAttemptAt DateTime? @map("last_attempt_at")
-  attemptCount  Int      @default(0) @map("attempt_count")
-  errorMessage  String?  @map("error_message")
-  jobId         String?  @map("job_id")
+  fetchedAt     DateTime? @map("fetched_at")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   @@index([status])
-  @@index([jobId])
+  @@index([normalizedUrl])
   @@map("discovered_urls")
 }
 
-/// A unit of ingestion work (a "run"). Resumable & inspectable.
 model IngestionJob {
-  id            String   @id @default(cuid())
-  // mode: "seed" | "csv" | "paste" | "single" | "reingest"
-  mode          String
-  // status: "pending" | "processing" | "paused" | "completed" | "failed" | "stopped"
-  status        String   @default("pending")
-  configJson    String   @default("{}") @map("config_json")
-  progressTotal Int      @default(0) @map("progress_total")
-  progressDone  Int      @default(0) @map("progress_done")
-  progressFailed Int     @default(0) @map("progress_failed")
-  startedAt     DateTime? @map("started_at")
-  finishedAt    DateTime? @map("finished_at")
-  logs          String   @default("[]") // JSON array of {ts, level, msg}
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(cuid())
+  label       String
+  status      String   @default("pending")
+  startedAt   DateTime @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  summaryJson String   @default("{}") @map("summary_json")
 
   @@index([status])
   @@map("ingestion_jobs")
 }
 
-/// A personal research note attached to a case.
 model CaseNote {
-  id        String   @id @default(cuid())
-  caseId    String   @map("case_id")
-  title     String?
-  body      String   @default("")
-  tags      String   @default("[]") // JSON string[]
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  caseDecisionId String   @map("case_decision_id")
+  content        String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  case CaseDecision @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
 
-  @@index([caseId])
+  @@index([caseDecisionId])
   @@map("case_notes")
 }
 
-/// A case saved into a research collection.
 model SavedCase {
   id             String   @id @default(cuid())
-  caseId         String   @map("case_id")
-  collectionName String   @default("Default") @map("collection_name")
+  caseDecisionId String   @map("case_decision_id")
   createdAt      DateTime @default(now()) @map("created_at")
 
-  case CaseDecision @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
 
-  @@unique([caseId, collectionName])
-  @@index([collectionName])
+  @@unique([caseDecisionId])
   @@map("saved_cases")
 }
 
-/// Persisted recent search queries (for the dashboard widget).
 model SearchHistory {
   id        String   @id @default(cuid())
   query     String
-  resultCount Int    @default(0) @map("result_count")
+  filtersJson String @default("{}") @map("filters_json")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("search_history")
 }
 
-/// Key/value app settings (privacy, ingestion overrides, theme defaults).
 model AppSetting {
-  key       String   @id
-  value     String
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
 
   @@map("app_settings")
 }
 
-// ===========================================================================
-// Apof.ai RAG layer — page-aware extraction, legal-aware chunks, embeddings,
-// and query logs. All local-first; works in mock mode with no external service.
-// ===========================================================================
-
-/// One extracted page of a decision document (provenance for citations).
 model DocumentPage {
   id             String   @id @default(cuid())
   caseDecisionId String   @map("case_decision_id")
   pageNumber     Int      @map("page_number")
   text           String
-  confidence     Float?
-  metadataJson   String   @default("{}") @map("metadata_json")
   createdAt      DateTime @default(now()) @map("created_at")
 
-  caseDecision   CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
 
   @@unique([caseDecisionId, pageNumber])
   @@index([caseDecisionId])
   @@map("document_pages")
 }
 
-/// A legal-aware chunk (section-preserving) — the unit of retrieval.
 model DocumentChunk {
-  id                String   @id
-  caseDecisionId    String   @map("case_decision_id")
-  chunkIndex        Int      @map("chunk_index")
-  parentSection     String?  @map("parent_section")
-  sectionTitle      String?  @map("section_title")
-  sectionKind       String?  @map("section_kind")
-  pageStart         Int?     @map("page_start")
-  pageEnd           Int?     @map("page_end")
-  paragraphStart    Int?     @map("paragraph_start")
-  paragraphEnd      Int?     @map("paragraph_end")
-  text              String
-  normalizedText    String   @map("normalized_text")
-  legalTermsJson    String   @default("[]") @map("legal_terms_json")
-  citedArticlesJson String   @default("[]") @map("cited_articles_json")
-  metadataJson      String   @default("{}") @map("metadata_json")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  caseDecisionId String   @map("case_decision_id")
+  pageId         String?  @map("page_id")
+  text           String
+  startOffset    Int      @map("start_offset")
+  endOffset      Int      @map("end_offset")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  caseDecision      CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
-  embeddings        ChunkEmbedding[]
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  embeddings   ChunkEmbedding[]
 
   @@index([caseDecisionId])
-  @@index([parentSection])
-  @@index([sectionTitle])
-  @@index([sectionKind])
+  @@index([pageId])
   @@map("document_chunks")
 }
 
-/// A vector embedding of a chunk (SQLite fallback stores the vector as JSON).
 model ChunkEmbedding {
-  id          String   @id @default(cuid())
-  chunkId     String   @map("chunk_id")
-  provider    String
-  model       String
-  dimensions  Int
-  vectorJson  String   @map("vector_json")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id       String @id @default(cuid())
+  chunkId  String @map("chunk_id")
+  model    String
+  vector   Bytes
+  metadata String @default("{}")
 
-  chunk       DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  chunk DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
 
-  @@unique([chunkId, provider, model])
-  @@index([model])
+  @@unique([chunkId, model])
+  @@index([chunkId])
   @@map("chunk_embeddings")
 }
 
-/// Structured, citation-aware breakdown of a decision (deterministic or AI).
 model CaseAnalysis {
   id             String   @id @default(cuid())
   caseDecisionId String   @unique @map("case_decision_id")
-  method         String   @default("deterministic") // deterministic | llm
+  method         String   @default("deterministic")
   breakdownJson  String   @map("breakdown_json")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  caseDecision   CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
 
   @@map("case_analyses")
 }
 
-/// Audit log of every RAG question (for evaluation + transparency).
 model RagQueryLog {
   id            String   @id @default(cuid())
   question      String
@@ -280,4 +202,218 @@ model RagQueryLog {
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@map("rag_query_logs")
+}
+
+// ===========================================================================
+// Apof Graph layer
+// ===========================================================================
+
+model ApofGraphExtraction {
+  id                    String   @id @default(cuid())
+  caseDecisionId        String   @unique @map("case_decision_id")
+  schemaVersion         String   @map("schema_version")
+  promptVersion         String   @map("prompt_version")
+  extractionMethod      String   @map("extraction_method")
+  fullJson              String   @map("full_json")
+  confidenceJson        String   @map("confidence_json")
+  unsupportedFieldsJson String   @default("[]") @map("unsupported_fields_json")
+  evidenceSpansJson     String   @default("[]") @map("evidence_spans_json")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+
+  @@index([caseDecisionId])
+  @@map("apof_graph_extractions")
+}
+
+model Judge {
+  id             String   @id @default(cuid())
+  name           String
+  nameNormalized String   @unique @map("name_normalized")
+  title          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  decisions DecisionJudge[]
+
+  @@map("judges")
+}
+
+model DecisionJudge {
+  id             String   @id @default(cuid())
+  caseDecisionId String   @map("case_decision_id")
+  judgeId        String   @map("judge_id")
+  role           String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  judge        Judge        @relation(fields: [judgeId], references: [id], onDelete: Cascade)
+
+  @@unique([caseDecisionId, judgeId, role])
+  @@index([caseDecisionId])
+  @@index([judgeId])
+  @@map("decision_judges")
+}
+
+model LegalIssue {
+  id          String   @id @default(cuid())
+  label       String   @unique
+  category    String
+  description String?
+  parentId    String?  @map("parent_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  parent    LegalIssue?        @relation("IssueHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  LegalIssue[]       @relation("IssueHierarchy")
+  decisions DecisionLegalIssue[]
+
+  @@index([parentId])
+  @@map("legal_issues")
+}
+
+model DecisionLegalIssue {
+  id                  String   @id @default(cuid())
+  caseDecisionId      String   @map("case_decision_id")
+  legalIssueId        String   @map("legal_issue_id")
+  confidence          Float    @default(0)
+  evidenceSpanIdsJson String   @default("[]") @map("evidence_span_ids_json")
+  determinedBy        String   @default("llm")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  legalIssue   LegalIssue   @relation(fields: [legalIssueId], references: [id], onDelete: Cascade)
+
+  @@unique([caseDecisionId, legalIssueId])
+  @@index([caseDecisionId])
+  @@index([legalIssueId])
+  @@map("decision_legal_issues")
+}
+
+model Statute {
+  id             String   @id @default(cuid())
+  name           String
+  nameNormalized String   @unique @map("name_normalized")
+  shortName      String?  @map("short_name")
+  category       String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  articles StatuteArticle[]
+
+  @@map("statutes")
+}
+
+model StatuteArticle {
+  id            String   @id @default(cuid())
+  statuteId     String   @map("statute_id")
+  articleNumber String   @map("article_number")
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  statute   Statute         @relation(fields: [statuteId], references: [id], onDelete: Cascade)
+  decisions DecisionArticle[]
+
+  @@unique([statuteId, articleNumber])
+  @@index([statuteId])
+  @@map("statute_articles")
+}
+
+model DecisionArticle {
+  id               String   @id @default(cuid())
+  caseDecisionId   String   @map("case_decision_id")
+  statuteArticleId String   @map("statute_article_id")
+  context          String?
+  confidence       Float    @default(0)
+  determinedBy     String   @default("deterministic")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  caseDecision   CaseDecision   @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  statuteArticle StatuteArticle @relation(fields: [statuteArticleId], references: [id], onDelete: Cascade)
+
+  @@unique([caseDecisionId, statuteArticleId])
+  @@index([caseDecisionId])
+  @@index([statuteArticleId])
+  @@map("decision_articles")
+}
+
+model DecisionCitation {
+  id                  String   @id @default(cuid())
+  caseDecisionId      String   @map("case_decision_id")
+  citedCaseDecisionId String   @map("cited_case_decision_id")
+  citationContext     String?  @map("citation_context")
+  treatment           String?
+  confidence          Float    @default(0)
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  caseDecision      CaseDecision @relation("CitingCase", fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  citedCaseDecision CaseDecision @relation("CitedCase", fields: [citedCaseDecisionId], references: [id], onDelete: Cascade)
+
+  @@unique([caseDecisionId, citedCaseDecisionId])
+  @@index([caseDecisionId])
+  @@index([citedCaseDecisionId])
+  @@map("decision_citations")
+}
+
+model DecisionSentence {
+  id                     String   @id @default(cuid())
+  caseDecisionId         String   @map("case_decision_id")
+  defendantName          String?  @map("defendant_name")
+  sentenceType           String   @map("sentence_type")
+  durationMonths         Int?     @map("duration_months")
+  fineAmount             Float?   @map("fine_amount")
+  fineCurrency           String   @default("IDR") @map("fine_currency")
+  restitutionAmount      Float?   @map("restitution_amount")
+  restitutionCurrency    String   @default("IDR") @map("restitution_currency")
+  aggravatingFactorsJson String   @default("[]") @map("aggravating_factors_json")
+  mitigatingFactorsJson  String   @default("[]") @map("mitigating_factors_json")
+  isProbation            Boolean  @default(false) @map("is_probation")
+  confidence             Float    @default(0)
+  evidenceSpansJson      String   @default("[]") @map("evidence_spans_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+
+  @@index([caseDecisionId])
+  @@index([sentenceType])
+  @@map("decision_sentences")
+}
+
+model DecisionSimilarity {
+  id                    String   @id @default(cuid())
+  caseDecisionId        String   @map("case_decision_id")
+  similarCaseDecisionId String   @map("similar_case_decision_id")
+  score                 Float
+  explanationJson       String   @map("explanation_json")
+  sharedIssueIdsJson    String   @default("[]") @map("shared_issue_ids_json")
+  sharedArticleIdsJson  String   @default("[]") @map("shared_article_ids_json")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  caseDecision        CaseDecision @relation("SimilaritySource", fields: [caseDecisionId], references: [id], onDelete: Cascade)
+  similarCaseDecision CaseDecision @relation("SimilarityTarget", fields: [similarCaseDecisionId], references: [id], onDelete: Cascade)
+
+  @@unique([caseDecisionId, similarCaseDecisionId])
+  @@index([caseDecisionId])
+  @@index([similarCaseDecisionId])
+  @@map("decision_similarities")
+}
+
+model HumanReview {
+  id              String    @id @default(cuid())
+  caseDecisionId  String    @map("case_decision_id")
+  reviewer        String?
+  status          String    @default("pending")
+  priority        String    @default("normal")
+  reviewType      String    @map("review_type")
+  findingsJson    String    @default("[]") @map("findings_json")
+  correctionsJson String    @default("[]") @map("corrections_json")
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  completedAt     DateTime? @map("completed_at")
+
+  caseDecision CaseDecision @relation(fields: [caseDecisionId], references: [id], onDelete: Cascade)
+
+  @@index([caseDecisionId])
+  @@index([status])
+  @@index([priority])
+  @@map("human_reviews")
 }
